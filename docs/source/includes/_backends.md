@@ -46,6 +46,7 @@ backend := sqlite.NewSqliteBackendWithDB(db, sqlite.WithApplyMigrations(true))
 
 - `WithApplyMigrations(applyMigrations bool)` - Set whether migrations should be applied on startup. Defaults to `true` for `NewSqliteBackend`, `false` for `NewSqliteBackendWithDB`
 - `WithMigrationsTable(migrationsTable string)` - Set the table used to track applied migrations. Defaults to golang-migrate's standard migration table.
+- `WithTablePrefix(tablePrefix string)` - Set a prefix for all go-workflows tables. If `WithMigrationsTable` is not also set, the migrations table is prefixed too.
 - `WithBackendOptions(opts ...backend.BackendOption)` - Apply generic backend options
 
 ### Schema
@@ -96,6 +97,7 @@ backend := mysql.NewMysqlBackendWithDB(db,
 - `WithApplyMigrations(applyMigrations bool)` - Set whether migrations should be applied on startup. Defaults to `true` for `NewMysqlBackend`, `false` for `NewMysqlBackendWithDB`
 - `WithMigrationDSN(dsn string)` - Set the DSN to use for migrations. Required when using `NewMysqlBackendWithDB` with `ApplyMigrations` enabled. The DSN must support multi-statement queries.
 - `WithMigrationsTable(migrationsTable string)` - Set the table used to track applied migrations. Defaults to golang-migrate's standard migration table.
+- `WithTablePrefix(tablePrefix string)` - Set a prefix for all go-workflows tables. If `WithMigrationsTable` is not also set, the migrations table is prefixed too.
 - `WithBackendOptions(opts ...backend.BackendOption)` - Apply generic backend options
 
 
@@ -139,6 +141,7 @@ backend := postgres.NewPostgresBackendWithDB(db, postgres.WithApplyMigrations(tr
 - `WithPostgresOptions(f func(db *sql.DB))` - Apply custom options to the PostgreSQL database connection
 - `WithApplyMigrations(applyMigrations bool)` - Set whether migrations should be applied on startup. Defaults to `true` for `NewPostgresBackend`, `false` for `NewPostgresBackendWithDB`
 - `WithMigrationsTable(migrationsTable string)` - Set the table used to track applied migrations. Defaults to golang-migrate's standard migration table.
+- `WithTablePrefix(tablePrefix string)` - Set a prefix for all go-workflows tables. If `WithMigrationsTable` is not also set, the migrations table is prefixed too.
 - `WithBackendOptions(opts ...backend.BackendOption)` - Apply generic backend options
 
 
@@ -151,6 +154,12 @@ See `migrations/postgres` for the schema and migrations. Main tables:
 - `history` - History for workflow instances
 - `activities` - Queue of pending activities
 - `attributes` - Payloads of events
+
+### Sharing a Database
+
+SQLite, MySQL, and PostgreSQL can share a database with a host application by using `WithTablePrefix`. For example, `sqlite.WithTablePrefix("gw_")` changes go-workflows tables such as `instances` and `history` to `gw_instances` and `gw_history`. Unless `WithMigrationsTable` is set explicitly, the migrations table is also prefixed, for example `gw_schema_migrations`.
+
+Table prefixes must produce valid SQL identifiers containing only letters, digits, and underscores, with a letter or underscore as the first character.
 
 ## Redis
 

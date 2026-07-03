@@ -25,7 +25,7 @@ func (mb *mysqlBackend) GetStats(ctx context.Context) (*backend.Stats, error) {
 	// Get active instances
 	row := tx.QueryRowContext(
 		ctx,
-		"SELECT COUNT(*) FROM instances i WHERE i.completed_at IS NULL",
+		fmt.Sprintf("SELECT COUNT(*) FROM %s i WHERE i.completed_at IS NULL", mb.tables.Instances),
 	)
 	if err := row.Err(); err != nil {
 		return nil, fmt.Errorf("failed to query active instances: %w", err)
@@ -42,14 +42,14 @@ func (mb *mysqlBackend) GetStats(ctx context.Context) (*backend.Stats, error) {
 	now := time.Now()
 	workflowRows, err := tx.QueryContext(
 		ctx,
-		`SELECT i.queue, COUNT(*)
-			FROM instances i
-			INNER JOIN pending_events pe ON i.instance_id = pe.instance_id
+		fmt.Sprintf(`SELECT i.queue, COUNT(*)
+			FROM %s i
+			INNER JOIN %s pe ON i.instance_id = pe.instance_id
 			WHERE
 				i.state = ? AND i.completed_at IS NULL
 				AND (pe.visible_at IS NULL OR pe.visible_at <= ?)
 				AND (i.locked_until IS NULL OR i.locked_until < ?)
-			GROUP BY i.queue`,
+			GROUP BY i.queue`, mb.tables.Instances, mb.tables.PendingEvents),
 		core.WorkflowInstanceStateActive,
 		now, // event.visible_at
 		now, // locked_until
@@ -77,7 +77,7 @@ func (mb *mysqlBackend) GetStats(ctx context.Context) (*backend.Stats, error) {
 	// Get pending activities
 	activityRows, err := tx.QueryContext(
 		ctx,
-		"SELECT queue, COUNT(*) FROM activities GROUP BY queue")
+		fmt.Sprintf("SELECT queue, COUNT(*) FROM %s GROUP BY queue", mb.tables.Activities))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query active activities: %w", err)
 	}

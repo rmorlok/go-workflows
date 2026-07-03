@@ -1,15 +1,15 @@
-ALTER TABLE `activities` ADD COLUMN `attributes` MEDIUMBLOB NULL;
-UPDATE `activities` SET `attributes` = `attributes`.`data` FROM `attributes` WHERE `activities`.`event_id` = `attributes`.`event_id` AND `activities`.`instance_id` = `attributes`.`instance_id` AND `activities`.`execution_id` = `attributes`.`execution_id`;
-ALTER TABLE `activities` MODIFY COLUMN `attributes` MEDIUMBLOB NOT NULL;
+ALTER TABLE {{ .Activities }} ADD COLUMN `attributes` MEDIUMBLOB NULL;
+UPDATE {{ .Activities }} SET `attributes` = {{ .Attributes }}.`data` FROM {{ .Attributes }} WHERE {{ .Activities }}.`event_id` = {{ .Attributes }}.`event_id` AND {{ .Activities }}.`instance_id` = {{ .Attributes }}.`instance_id` AND {{ .Activities }}.`execution_id` = {{ .Attributes }}.`execution_id`;
+ALTER TABLE {{ .Activities }} MODIFY COLUMN `attributes` MEDIUMBLOB NOT NULL;
 
-ALTER TABLE `history` ADD COLUMN `attributes` MEDIUMBLOB NULL;
-UPDATE `history` SET `attributes` = `attributes`.`data` FROM `attributes` WHERE `history`.`event_id` = `attributes`.`event_id` AND `history`.`instance_id` = `attributes`.`instance_id` AND `history`.`execution_id` = `attributes`.`execution_id`;
-ALTER TABLE `history` MODIFY COLUMN `attributes` MEDIUMBLOB NOT NULL;
+ALTER TABLE {{ .History }} ADD COLUMN `attributes` MEDIUMBLOB NULL;
+UPDATE {{ .History }} SET `attributes` = {{ .Attributes }}.`data` FROM {{ .Attributes }} WHERE {{ .History }}.`event_id` = {{ .Attributes }}.`event_id` AND {{ .History }}.`instance_id` = {{ .Attributes }}.`instance_id` AND {{ .History }}.`execution_id` = {{ .Attributes }}.`execution_id`;
+ALTER TABLE {{ .History }} MODIFY COLUMN `attributes` MEDIUMBLOB NOT NULL;
 
-ALTER TABLE `pending_events` ADD COLUMN `attributes` MEDIUMBLOB NULL;
-UPDATE `pending_events` SET `attributes` = `attributes`.`data` FROM `attributes` WHERE `pending_events`.`event_id` = `attributes`.`event_id` AND `pending_events`.`instance_id` = `attributes`.`instance_id` AND `pending_events`.`execution_id` = `attributes`.`execution_id`;
-ALTER TABLE `pending_events` MODIFY COLUMN `attributes` MEDIUMBLOB NOT NULL;
+ALTER TABLE {{ .PendingEvents }} ADD COLUMN `attributes` MEDIUMBLOB NULL;
+UPDATE {{ .PendingEvents }} SET `attributes` = {{ .Attributes }}.`data` FROM {{ .Attributes }} WHERE {{ .PendingEvents }}.`event_id` = {{ .Attributes }}.`event_id` AND {{ .PendingEvents }}.`instance_id` = {{ .Attributes }}.`instance_id` AND {{ .PendingEvents }}.`execution_id` = {{ .Attributes }}.`execution_id`;
+ALTER TABLE {{ .PendingEvents }} MODIFY COLUMN `attributes` MEDIUMBLOB NOT NULL;
 
 
 -- Drop attributes table
-DROP TABLE `attributes`;
+DROP TABLE {{ .Attributes }};

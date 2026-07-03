@@ -17,6 +17,10 @@ type options struct {
 	// MigrationsTable is the table used to track applied migrations. If empty,
 	// golang-migrate uses its default table.
 	MigrationsTable string
+
+	// TablePrefix is prepended to all go-workflows table names. If set and
+	// MigrationsTable is empty, it is also prepended to schema_migrations.
+	TablePrefix string
 }
 
 type option func(*options)
@@ -32,6 +36,13 @@ func WithApplyMigrations(applyMigrations bool) option {
 func WithMigrationsTable(migrationsTable string) option {
 	return func(o *options) {
 		o.MigrationsTable = migrationsTable
+	}
+}
+
+// WithTablePrefix sets a prefix for all go-workflows tables.
+func WithTablePrefix(tablePrefix string) option {
+	return func(o *options) {
+		o.TablePrefix = tablePrefix
 	}
 }
 

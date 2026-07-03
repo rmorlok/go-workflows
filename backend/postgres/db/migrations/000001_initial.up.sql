@@ -1,6 +1,6 @@
-DROP TABLE IF EXISTS instances;
+DROP TABLE IF EXISTS {{ .Instances }};
 
-CREATE TABLE instances (
+CREATE TABLE {{ .Instances }} (
   id bigserial NOT NULL PRIMARY KEY,
   instance_id varchar(128) NOT NULL,
   execution_id varchar(128) NOT NULL,
@@ -17,12 +17,12 @@ CREATE TABLE instances (
   worker varchar(64) NULL
 );
 
-CREATE UNIQUE INDEX idx_instances_instance_id_execution_id on instances (instance_id, execution_id);
-CREATE INDEX idx_instances_locked_until_completed_at_queue ON instances (completed_at, locked_until, sticky_until, worker, queue);
-CREATE INDEX idx_instances_parent_instance_id_parent_execution_id ON instances (parent_instance_id, parent_execution_id);
+CREATE UNIQUE INDEX {{ .IdxInstancesInstanceIDExecutionID }} on {{ .Instances }} (instance_id, execution_id);
+CREATE INDEX {{ .IdxInstancesLockedUntilCompletedAtQueue }} ON {{ .Instances }} (completed_at, locked_until, sticky_until, worker, queue);
+CREATE INDEX {{ .IdxInstancesParentInstanceIDParentExecutionID }} ON {{ .Instances }} (parent_instance_id, parent_execution_id);
 
-DROP TABLE IF EXISTS pending_events;
-CREATE TABLE pending_events (
+DROP TABLE IF EXISTS {{ .PendingEvents }};
+CREATE TABLE {{ .PendingEvents }} (
   id bigserial NOT NULL PRIMARY KEY,
   event_id varchar(128) NOT NULL,
   sequence_id bigserial NOT NULL, -- Not used, but keep for now for query compat
@@ -34,11 +34,11 @@ CREATE TABLE pending_events (
   visible_at timestamptz NULL
 );
 
-CREATE INDEX idx_pending_events_inid_exid ON pending_events (instance_id, execution_id);
-CREATE INDEX idx_pending_events_inid_exid_visible_at_schedule_event_id ON pending_events (instance_id, execution_id, visible_at, schedule_event_id);
+CREATE INDEX {{ .IdxPendingEventsInIDExID }} ON {{ .PendingEvents }} (instance_id, execution_id);
+CREATE INDEX {{ .IdxPendingEventsInIDExIDVisibleAtScheduleEventID }} ON {{ .PendingEvents }} (instance_id, execution_id, visible_at, schedule_event_id);
 
-DROP TABLE IF EXISTS history;
-CREATE TABLE IF NOT EXISTS history (
+DROP TABLE IF EXISTS {{ .History }};
+CREATE TABLE IF NOT EXISTS {{ .History }} (
   id bigserial NOT NULL PRIMARY KEY,
   event_id varchar(128) NOT NULL,
   sequence_id bigserial NOT NULL,
@@ -50,11 +50,11 @@ CREATE TABLE IF NOT EXISTS history (
   visible_at timestamptz NULL
 );
 
-CREATE INDEX idx_history_instance_id_execution_id ON history (instance_id, execution_id);
-CREATE INDEX idx_history_instance_id_execution_id_sequence_id ON history (instance_id, execution_id, sequence_id);
+CREATE INDEX {{ .IdxHistoryInstanceIDExecutionID }} ON {{ .History }} (instance_id, execution_id);
+CREATE INDEX {{ .IdxHistoryInstanceIDExecutionIDSequence }} ON {{ .History }} (instance_id, execution_id, sequence_id);
 
-DROP TABLE IF EXISTS activities;
-CREATE TABLE IF NOT EXISTS activities (
+DROP TABLE IF EXISTS {{ .Activities }};
+CREATE TABLE IF NOT EXISTS {{ .Activities }} (
   id bigserial NOT NULL PRIMARY KEY,
   activity_id varchar(128) NOT NULL,
   instance_id varchar(128) NOT NULL,
@@ -68,11 +68,11 @@ CREATE TABLE IF NOT EXISTS activities (
   worker VARCHAR(64) NULL
 );
 
-CREATE UNIQUE INDEX idx_activities_instance_id_execution_id_activity_id_worker ON activities (instance_id, execution_id, activity_id, worker);
-CREATE INDEX idx_activities_locked_until_queue ON activities (locked_until, queue);
+CREATE UNIQUE INDEX {{ .IdxActivitiesInstanceIDExecutionIDActivityIDWorker }} ON {{ .Activities }} (instance_id, execution_id, activity_id, worker);
+CREATE INDEX {{ .IdxActivitiesLockedUntilQueue }} ON {{ .Activities }} (locked_until, queue);
 
-DROP TABLE IF EXISTS attributes;
-CREATE TABLE attributes (
+DROP TABLE IF EXISTS {{ .Attributes }};
+CREATE TABLE {{ .Attributes }} (
   id BIGSERIAL NOT NULL PRIMARY KEY,
   event_id varchar(128) NOT NULL,
   instance_id varchar(128) NOT NULL,
@@ -80,5 +80,5 @@ CREATE TABLE attributes (
   data bytea NOT NULL
 );
 
-CREATE UNIQUE INDEX idx_attributes_instance_id_execution_id_event_id on attributes (instance_id, execution_id, event_id);
-CREATE INDEX idx_attributes_event_id on attributes (event_id);
+CREATE UNIQUE INDEX {{ .IdxAttributesInstanceIDExecutionIDEventID }} on {{ .Attributes }} (instance_id, execution_id, event_id);
+CREATE INDEX {{ .IdxAttributesEventID }} on {{ .Attributes }} (event_id);

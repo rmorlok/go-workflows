@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cschleiden/go-workflows/backend"
 	"github.com/cschleiden/go-workflows/backend/history"
 	"github.com/cschleiden/go-workflows/backend/test"
+	"github.com/cschleiden/go-workflows/core"
+	"github.com/cschleiden/go-workflows/workflow"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 )
 
 const testUser = "root"
@@ -171,6 +175,92 @@ func Test_MysqlBackendWithCustomMigrationsTable(t *testing.T) {
 	}
 }
 
+func Test_MysqlBackendWithTablePrefix(t *testing.T) {
+	if testing.Short() {
+		t.Skip()
+	}
+
+	adminDB, err := sql.Open("mysql", fmt.Sprintf("%s:%s@/?parseTime=true&interpolateParams=true", testUser, testPassword))
+	require.NoError(t, err)
+
+	dbName := "test_table_prefix_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	_, err = adminDB.Exec("CREATE DATABASE " + dbName)
+	require.NoError(t, err)
+	defer func() {
+		_, _ = adminDB.Exec("DROP DATABASE IF EXISTS " + dbName)
+		_ = adminDB.Close()
+	}()
+
+	dsn := fmt.Sprintf("%s:%s@tcp(localhost:3306)/%s?parseTime=true&interpolateParams=true", testUser, testPassword, dbName)
+	db, err := sql.Open("mysql", dsn)
+	require.NoError(t, err)
+	defer db.Close()
+
+	_, err = db.Exec("CREATE TABLE schema_migrations (version bigint not null primary key, dirty boolean not null)")
+	require.NoError(t, err)
+	_, err = db.Exec("INSERT INTO schema_migrations (version, dirty) VALUES (10, false)")
+	require.NoError(t, err)
+	_, err = db.Exec("CREATE TABLE instances (id varchar(64) primary key)")
+	require.NoError(t, err)
+	_, err = db.Exec("INSERT INTO instances (id) VALUES ('host-instance')")
+	require.NoError(t, err)
+
+	b := NewMysqlBackendWithDB(
+		db,
+		WithApplyMigrations(true),
+		WithMigrationDSN(dsn+"&multiStatements=true"),
+		WithTablePrefix("gw_"),
+	)
+	defer b.Close()
+
+	_, err = db.Exec("SELECT 1 FROM gw_instances LIMIT 1")
+	require.NoError(t, err)
+
+	var hostInstance string
+	err = db.QueryRow("SELECT id FROM instances").Scan(&hostInstance)
+	require.NoError(t, err)
+	require.Equal(t, "host-instance", hostInstance)
+
+	var defaultVersion int
+	err = db.QueryRow("SELECT version FROM schema_migrations").Scan(&defaultVersion)
+	require.NoError(t, err)
+	require.Equal(t, 10, defaultVersion)
+
+	var workflowsVersion int
+	err = db.QueryRow("SELECT version FROM gw_schema_migrations").Scan(&workflowsVersion)
+	require.NoError(t, err)
+	require.Equal(t, 4, workflowsVersion)
+
+	assertTablePrefixBackendSmoke(t, b)
+}
+
+func assertTablePrefixBackendSmoke(t *testing.T, b backend.Backend) {
+	t.Helper()
+
+	ctx := context.Background()
+	instance := core.NewWorkflowInstance(uuid.NewString(), uuid.NewString())
+	err := b.CreateWorkflowInstance(
+		ctx,
+		instance,
+		history.NewHistoryEvent(1, time.Now(), history.EventType_WorkflowExecutionStarted, &history.ExecutionStartedAttributes{
+			Queue: workflow.QueueDefault,
+		}),
+	)
+	require.NoError(t, err)
+
+	task, err := b.GetWorkflowTask(ctx, []workflow.Queue{workflow.QueueDefault, core.QueueSystem})
+	require.NoError(t, err)
+	require.NotNil(t, task)
+	require.Equal(t, instance.InstanceID, task.WorkflowInstance.InstanceID)
+
+	err = b.CompleteWorkflowTask(ctx, task, core.WorkflowInstanceStateFinished, task.NewEvents, nil, nil, nil)
+	require.NoError(t, err)
+
+	state, err := b.GetWorkflowInstanceState(ctx, instance)
+	require.NoError(t, err)
+	require.Equal(t, core.WorkflowInstanceStateFinished, state)
+}
+
 var _ test.TestBackend = (*mysqlBackend)(nil)
 
 func (mb *mysqlBackend) GetFutureEvents(ctx context.Context) ([]*history.Event, error) {
@@ -183,7 +273,7 @@ func (mb *mysqlBackend) GetFutureEvents(ctx context.Context) ([]*history.Event, 
 	// There is no index on `visible_at`, but this is okay for test only usage.
 	futureEvents, err := tx.QueryContext(
 		ctx,
-		"SELECT pe.id, pe.sequence_id, pe.instance_id, pe.execution_id, pe.event_type, pe.timestamp, pe.schedule_event_id, pe.visible_at, a.data FROM `pending_events` pe JOIN `attributes` a ON a.id = pe.id AND a.instance_id = pe.instance_id AND a.execution_id = pe.execution_id WHERE pe.visible_at IS NOT NULL",
+		fmt.Sprintf("SELECT pe.id, pe.sequence_id, pe.instance_id, pe.execution_id, pe.event_type, pe.timestamp, pe.schedule_event_id, pe.visible_at, a.data FROM %s pe JOIN %s a ON a.id = pe.id AND a.instance_id = pe.instance_id AND a.execution_id = pe.execution_id WHERE pe.visible_at IS NOT NULL", mb.tables.PendingEvents, mb.tables.Attributes),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("getting history: %w", err)

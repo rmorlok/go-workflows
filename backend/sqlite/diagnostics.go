@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/cschleiden/go-workflows/core"
@@ -25,12 +26,12 @@ func (sb *sqliteBackend) GetWorkflowInstances(ctx context.Context, afterInstance
 	if afterInstanceID != "" {
 		rows, err = tx.QueryContext(
 			ctx,
-			`SELECT i.id, i.execution_id, i.parent_instance_id, i.parent_execution_id, i.parent_schedule_event_id, i.created_at, i.completed_at, i.queue
-			FROM instances i
-			INNER JOIN (SELECT id, created_at FROM instances WHERE id = ? AND execution_id = ?) ii
+			fmt.Sprintf(`SELECT i.id, i.execution_id, i.parent_instance_id, i.parent_execution_id, i.parent_schedule_event_id, i.created_at, i.completed_at, i.queue
+			FROM %s i
+			INNER JOIN (SELECT id, created_at FROM %s WHERE id = ? AND execution_id = ?) ii
 				ON i.created_at < ii.created_at OR (i.created_at = ii.created_at AND i.id < ii.id)
 			ORDER BY i.created_at DESC, i.id DESC
-			LIMIT ?`,
+			LIMIT ?`, sb.tables.Instances, sb.tables.Instances),
 			afterInstanceID,
 			afterExecutionID,
 			count,
@@ -38,10 +39,10 @@ func (sb *sqliteBackend) GetWorkflowInstances(ctx context.Context, afterInstance
 	} else {
 		rows, err = tx.QueryContext(
 			ctx,
-			`SELECT i.id, i.execution_id, i.parent_instance_id, i.parent_execution_id, i.parent_schedule_event_id, i.created_at, i.completed_at, i.queue
-			FROM instances i
+			fmt.Sprintf(`SELECT i.id, i.execution_id, i.parent_instance_id, i.parent_execution_id, i.parent_schedule_event_id, i.created_at, i.completed_at, i.queue
+			FROM %s i
 			ORDER BY i.created_at DESC, i.id DESC
-			LIMIT ?`,
+			LIMIT ?`, sb.tables.Instances),
 			count,
 		)
 	}
@@ -105,8 +106,8 @@ func (sb *sqliteBackend) GetWorkflowInstance(ctx context.Context, instance *core
 
 	res := tx.QueryRowContext(
 		ctx,
-		`SELECT id, execution_id, parent_instance_id, parent_execution_id, parent_schedule_event_id, created_at, completed_at, queue
-			FROM instances WHERE id = ? AND execution_id = ?`,
+		fmt.Sprintf(`SELECT id, execution_id, parent_instance_id, parent_execution_id, parent_schedule_event_id, created_at, completed_at, queue
+			FROM %s WHERE id = ? AND execution_id = ?`, sb.tables.Instances),
 		instance.InstanceID, instance.ExecutionID)
 
 	var id, executionID, queue string

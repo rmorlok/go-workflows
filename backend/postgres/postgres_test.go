@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cschleiden/go-workflows/backend"
 	"github.com/cschleiden/go-workflows/backend/history"
 	"github.com/cschleiden/go-workflows/backend/test"
+	"github.com/cschleiden/go-workflows/core"
+	"github.com/cschleiden/go-workflows/workflow"
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
@@ -149,6 +152,90 @@ func Test_PostgresBackendWithCustomMigrationsTable(t *testing.T) {
 	require.Equal(t, 1, workflowsVersion)
 }
 
+func Test_PostgresBackendWithTablePrefix(t *testing.T) {
+	if testing.Short() {
+		t.Skip()
+	}
+
+	adminDB, err := sql.Open("pgx", fmt.Sprintf("host=localhost port=5432 user=%s password=%s dbname=postgres sslmode=disable", testUser, testPassword))
+	require.NoError(t, err)
+
+	dbName := "test_table_prefix_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	_, err = adminDB.Exec("CREATE DATABASE " + dbName)
+	require.NoError(t, err)
+	defer func() {
+		_, _ = adminDB.Exec("DROP DATABASE IF EXISTS " + dbName + " WITH (FORCE)")
+		_ = adminDB.Close()
+	}()
+
+	db, err := sql.Open("pgx", fmt.Sprintf("host=localhost port=5432 user=%s password=%s dbname=%s sslmode=disable", testUser, testPassword, dbName))
+	require.NoError(t, err)
+	defer db.Close()
+
+	_, err = db.Exec("CREATE TABLE schema_migrations (version bigint NOT NULL PRIMARY KEY, dirty boolean NOT NULL)")
+	require.NoError(t, err)
+	_, err = db.Exec("INSERT INTO schema_migrations (version, dirty) VALUES (10, false)")
+	require.NoError(t, err)
+	_, err = db.Exec("CREATE TABLE instances (id text PRIMARY KEY)")
+	require.NoError(t, err)
+	_, err = db.Exec("INSERT INTO instances (id) VALUES ('host-instance')")
+	require.NoError(t, err)
+
+	b := NewPostgresBackendWithDB(
+		db,
+		WithApplyMigrations(true),
+		WithTablePrefix("gw_"),
+	)
+	defer b.Close()
+
+	_, err = db.Exec("SELECT 1 FROM gw_instances LIMIT 1")
+	require.NoError(t, err)
+
+	var hostInstance string
+	err = db.QueryRow("SELECT id FROM instances").Scan(&hostInstance)
+	require.NoError(t, err)
+	require.Equal(t, "host-instance", hostInstance)
+
+	var defaultVersion int
+	err = db.QueryRow("SELECT version FROM schema_migrations").Scan(&defaultVersion)
+	require.NoError(t, err)
+	require.Equal(t, 10, defaultVersion)
+
+	var workflowsVersion int
+	err = db.QueryRow("SELECT version FROM gw_schema_migrations").Scan(&workflowsVersion)
+	require.NoError(t, err)
+	require.Equal(t, 1, workflowsVersion)
+
+	assertTablePrefixBackendSmoke(t, b)
+}
+
+func assertTablePrefixBackendSmoke(t *testing.T, b backend.Backend) {
+	t.Helper()
+
+	ctx := context.Background()
+	instance := core.NewWorkflowInstance(uuid.NewString(), uuid.NewString())
+	err := b.CreateWorkflowInstance(
+		ctx,
+		instance,
+		history.NewHistoryEvent(1, time.Now(), history.EventType_WorkflowExecutionStarted, &history.ExecutionStartedAttributes{
+			Queue: workflow.QueueDefault,
+		}),
+	)
+	require.NoError(t, err)
+
+	task, err := b.GetWorkflowTask(ctx, []workflow.Queue{workflow.QueueDefault, core.QueueSystem})
+	require.NoError(t, err)
+	require.NotNil(t, task)
+	require.Equal(t, instance.InstanceID, task.WorkflowInstance.InstanceID)
+
+	err = b.CompleteWorkflowTask(ctx, task, core.WorkflowInstanceStateFinished, task.NewEvents, nil, nil, nil)
+	require.NoError(t, err)
+
+	state, err := b.GetWorkflowInstanceState(ctx, instance)
+	require.NoError(t, err)
+	require.Equal(t, core.WorkflowInstanceStateFinished, state)
+}
+
 var _ test.TestBackend = (*postgresBackend)(nil)
 
 // GetFutureEvents returns all pending events that have a non-null visible_at (timers / scheduled future events).
@@ -161,7 +248,7 @@ func (pb *postgresBackend) GetFutureEvents(ctx context.Context) ([]*history.Even
 
 	// attributes now lives in the separate attributes table (joined by event_id + instance_id + execution_id)
 	rows, err := tx.QueryContext(ctx,
-		`SELECT 
+		fmt.Sprintf(`SELECT
             pe.event_id,
             pe.sequence_id,
             pe.event_type,
@@ -169,12 +256,12 @@ func (pb *postgresBackend) GetFutureEvents(ctx context.Context) ([]*history.Even
             pe.schedule_event_id,
             a.data,
             pe.visible_at
-         FROM pending_events pe
-         JOIN attributes a 
-           ON a.event_id = pe.event_id 
-          AND a.instance_id = pe.instance_id 
+         FROM %s pe
+         JOIN %s a
+           ON a.event_id = pe.event_id
+          AND a.instance_id = pe.instance_id
           AND a.execution_id = pe.execution_id
-         WHERE pe.visible_at IS NOT NULL`)
+         WHERE pe.visible_at IS NOT NULL`, pb.tables.PendingEvents, pb.tables.Attributes))
 	if err != nil {
 		return nil, fmt.Errorf("querying future events: %w", err)
 	}

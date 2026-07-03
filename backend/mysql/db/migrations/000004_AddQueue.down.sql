@@ -1,14 +1,14 @@
 -- Remove queue column from instances
-ALTER TABLE `instances` DROP COLUMN `queue`;
+ALTER TABLE {{ .Instances }} DROP COLUMN `queue`;
 
 -- Update index
-DROP INDEX `idx_instances_locked_until_completed_at_queue` ON `instances`;
-CREATE INDEX `idx_instances_locked_until_completed_at` ON `instances` (`completed_at`, `locked_until`, `sticky_until`, `worker`);
+DROP INDEX {{ .IdxInstancesLockedUntilCompletedAtQueue }} ON {{ .Instances }};
+CREATE INDEX {{ .IdxInstancesLockedUntilCompletedAt }} ON {{ .Instances }} (`completed_at`, `locked_until`, `sticky_until`, `worker`);
 
 -- Update index
-DROP INDEX `idx_activities_locked_until_queue` ON `activities`;
+DROP INDEX {{ .IdxActivitiesLockedUntilQueue }} ON {{ .Activities }};
 
 -- Remove queue column from activities
-ALTER TABLE `activities` DROP COLUMN `queue`;
+ALTER TABLE {{ .Activities }} DROP COLUMN `queue`;
 
-CREATE INDEX `idx_activities_locked_until` ON `activities` (`locked_until`);
+CREATE INDEX {{ .IdxActivitiesLockedUntil }} ON {{ .Activities }} (`locked_until`);

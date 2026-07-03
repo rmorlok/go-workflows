@@ -10,15 +10,15 @@ import (
 	"github.com/cschleiden/go-workflows/core"
 )
 
-func insertPendingEvents(ctx context.Context, tx *sql.Tx, instance *core.WorkflowInstance, newEvents []*history.Event) error {
-	return insertEvents(ctx, tx, "pending_events", instance, newEvents)
+func (mb *mysqlBackend) insertPendingEvents(ctx context.Context, tx *sql.Tx, instance *core.WorkflowInstance, newEvents []*history.Event) error {
+	return mb.insertEvents(ctx, tx, mb.tables.PendingEvents, instance, newEvents)
 }
 
-func insertHistoryEvents(ctx context.Context, tx *sql.Tx, instance *core.WorkflowInstance, historyEvents []*history.Event) error {
-	return insertEvents(ctx, tx, "history", instance, historyEvents)
+func (mb *mysqlBackend) insertHistoryEvents(ctx context.Context, tx *sql.Tx, instance *core.WorkflowInstance, historyEvents []*history.Event) error {
+	return mb.insertEvents(ctx, tx, mb.tables.History, instance, historyEvents)
 }
 
-func insertEvents(ctx context.Context, tx *sql.Tx, tableName string, instance *core.WorkflowInstance, events []*history.Event) error {
+func (mb *mysqlBackend) insertEvents(ctx context.Context, tx *sql.Tx, tableName string, instance *core.WorkflowInstance, events []*history.Event) error {
 	const batchSize = 20
 	for batchStart := 0; batchStart < len(events); batchStart += batchSize {
 		batchEnd := batchStart + batchSize
@@ -27,11 +27,10 @@ func insertEvents(ctx context.Context, tx *sql.Tx, tableName string, instance *c
 		}
 		batchEvents := events[batchStart:batchEnd]
 
-		aquery := "INSERT IGNORE INTO `attributes` (event_id, instance_id, execution_id, data) VALUES (?, ?, ?, ?)" + strings.Repeat(", (?, ?, ?, ?)", len(batchEvents)-1)
+		aquery := fmt.Sprintf("INSERT IGNORE INTO %s (event_id, instance_id, execution_id, data) VALUES (?, ?, ?, ?)", mb.tables.Attributes) + strings.Repeat(", (?, ?, ?, ?)", len(batchEvents)-1)
 		aargs := make([]interface{}, 0, len(batchEvents)*4)
 
-		query := "INSERT INTO `" + tableName +
-			"` (event_id, sequence_id, instance_id, execution_id, event_type, timestamp, schedule_event_id, visible_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)" +
+		query := fmt.Sprintf("INSERT INTO %s (event_id, sequence_id, instance_id, execution_id, event_type, timestamp, schedule_event_id, visible_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", tableName) +
 			strings.Repeat(", (?, ?, ?, ?, ?, ?, ?, ?)", len(batchEvents)-1)
 
 		args := make([]interface{}, 0, len(batchEvents)*8)
@@ -70,10 +69,10 @@ func insertEvents(ctx context.Context, tx *sql.Tx, tableName string, instance *c
 	return nil
 }
 
-func removeFutureEvent(ctx context.Context, tx *sql.Tx, instance *core.WorkflowInstance, scheduleEventID int64) error {
+func (mb *mysqlBackend) removeFutureEvent(ctx context.Context, tx *sql.Tx, instance *core.WorkflowInstance, scheduleEventID int64) error {
 	_, err := tx.ExecContext(
 		ctx,
-		"DELETE `pending_events`, `attributes` FROM `pending_events` INNER JOIN `attributes` ON `pending_events`.event_id = `attributes`.event_id WHERE `pending_events`.instance_id = ? AND `pending_events`.execution_id = ? AND `pending_events`.schedule_event_id = ? AND `pending_events`.visible_at IS NOT NULL",
+		fmt.Sprintf("DELETE pe, a FROM %s pe INNER JOIN %s a ON pe.event_id = a.event_id WHERE pe.instance_id = ? AND pe.execution_id = ? AND pe.schedule_event_id = ? AND pe.visible_at IS NOT NULL", mb.tables.PendingEvents, mb.tables.Attributes),
 		instance.InstanceID,
 		instance.ExecutionID,
 		scheduleEventID,

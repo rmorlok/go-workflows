@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/cschleiden/go-workflows/core"
@@ -23,12 +24,12 @@ func (pb *postgresBackend) GetWorkflowInstances(ctx context.Context, afterInstan
 	if afterInstanceID != "" {
 		rows, err = tx.QueryContext(
 			ctx,
-			`SELECT i.instance_id, i.execution_id, i.parent_instance_id, i.parent_execution_id, i.parent_schedule_event_id, i.created_at, i.completed_at, i.queue
-			FROM instances i
-			INNER JOIN (SELECT instance_id, created_at FROM instances WHERE instance_id = $1 AND execution_id = $2) ii
+			fmt.Sprintf(`SELECT i.instance_id, i.execution_id, i.parent_instance_id, i.parent_execution_id, i.parent_schedule_event_id, i.created_at, i.completed_at, i.queue
+			FROM %s i
+			INNER JOIN (SELECT instance_id, created_at FROM %s WHERE instance_id = $1 AND execution_id = $2) ii
 				ON i.created_at < ii.created_at OR (i.created_at = ii.created_at AND i.instance_id < ii.instance_id)
 			ORDER BY i.created_at DESC, i.instance_id DESC
-			LIMIT $3`,
+			LIMIT $3`, pb.tables.Instances, pb.tables.Instances),
 			afterInstanceID,
 			afterExecutionID,
 			count,
@@ -36,10 +37,10 @@ func (pb *postgresBackend) GetWorkflowInstances(ctx context.Context, afterInstan
 	} else {
 		rows, err = tx.QueryContext(
 			ctx,
-			`SELECT i.instance_id, i.execution_id, i.parent_instance_id, i.parent_execution_id, i.parent_schedule_event_id, i.created_at, i.completed_at, i.queue
-			FROM instances i
+			fmt.Sprintf(`SELECT i.instance_id, i.execution_id, i.parent_instance_id, i.parent_execution_id, i.parent_schedule_event_id, i.created_at, i.completed_at, i.queue
+			FROM %s i
 			ORDER BY i.created_at DESC, i.instance_id DESC
-			LIMIT $1`,
+			LIMIT $1`, pb.tables.Instances),
 			count,
 		)
 	}
@@ -100,9 +101,9 @@ func (pb *postgresBackend) GetWorkflowInstance(ctx context.Context, instance *co
 
 	res := tx.QueryRowContext(
 		ctx,
-		`SELECT instance_id, execution_id, parent_instance_id, parent_execution_id, parent_schedule_event_id, created_at, completed_at, queue
-			FROM instances
-			WHERE instance_id = $1 AND execution_id = $2`, instance.InstanceID, instance.ExecutionID)
+		fmt.Sprintf(`SELECT instance_id, execution_id, parent_instance_id, parent_execution_id, parent_schedule_event_id, created_at, completed_at, queue
+			FROM %s
+			WHERE instance_id = $1 AND execution_id = $2`, pb.tables.Instances), instance.InstanceID, instance.ExecutionID)
 
 	var id, executionID, queue string
 	var parentID, parentExecutionID *string

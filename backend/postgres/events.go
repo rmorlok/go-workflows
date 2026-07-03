@@ -10,15 +10,15 @@ import (
 	"github.com/cschleiden/go-workflows/core"
 )
 
-func insertPendingEvents(ctx context.Context, tx *sql.Tx, instance *core.WorkflowInstance, newEvents []*history.Event) error {
-	return insertEvents(ctx, tx, "pending_events", instance, newEvents)
+func (pb *postgresBackend) insertPendingEvents(ctx context.Context, tx *sql.Tx, instance *core.WorkflowInstance, newEvents []*history.Event) error {
+	return pb.insertEvents(ctx, tx, pb.tables.PendingEvents, instance, newEvents)
 }
 
-func insertHistoryEvents(ctx context.Context, tx *sql.Tx, instance *core.WorkflowInstance, historyEvents []*history.Event) error {
-	return insertEvents(ctx, tx, "history", instance, historyEvents)
+func (pb *postgresBackend) insertHistoryEvents(ctx context.Context, tx *sql.Tx, instance *core.WorkflowInstance, historyEvents []*history.Event) error {
+	return pb.insertEvents(ctx, tx, pb.tables.History, instance, historyEvents)
 }
 
-func insertEvents(ctx context.Context, tx *sql.Tx, tableName string, instance *core.WorkflowInstance, events []*history.Event) error {
+func (pb *postgresBackend) insertEvents(ctx context.Context, tx *sql.Tx, tableName string, instance *core.WorkflowInstance, events []*history.Event) error {
 	const batchSize = 20
 	for batchStart := 0; batchStart < len(events); batchStart += batchSize {
 		batchEnd := batchStart + batchSize
@@ -42,13 +42,12 @@ func insertEvents(ctx context.Context, tx *sql.Tx, tableName string, instance *c
 			return "," + strings.Join(holders, ", ")
 		}
 
-		aquery := "INSERT INTO attributes (event_id, instance_id, execution_id, data) VALUES ($1, $2, $3, $4)" +
+		aquery := fmt.Sprintf("INSERT INTO %s (event_id, instance_id, execution_id, data) VALUES ($1, $2, $3, $4)", pb.tables.Attributes) +
 			pgPlaceHolder(5, len(batchEvents)-1, 4) +
 			" ON CONFLICT DO NOTHING"
 		aargs := make([]interface{}, 0, len(batchEvents)*4)
 
-		query := "INSERT INTO " + tableName +
-			" (event_id, sequence_id, instance_id, execution_id, event_type, timestamp, schedule_event_id, visible_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)" +
+		query := fmt.Sprintf("INSERT INTO %s (event_id, sequence_id, instance_id, execution_id, event_type, timestamp, schedule_event_id, visible_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)", tableName) +
 			pgPlaceHolder(9, len(batchEvents)-1, 8)
 
 		args := make([]interface{}, 0, len(batchEvents)*8)
@@ -87,25 +86,25 @@ func insertEvents(ctx context.Context, tx *sql.Tx, tableName string, instance *c
 	return nil
 }
 
-func removeFutureEvent(ctx context.Context, tx *sql.Tx, instance *core.WorkflowInstance, scheduleEventID int64) error {
-	if _, err := tx.ExecContext(ctx, `
-		DELETE FROM attributes a
-		USING pending_events pe
+func (pb *postgresBackend) removeFutureEvent(ctx context.Context, tx *sql.Tx, instance *core.WorkflowInstance, scheduleEventID int64) error {
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		DELETE FROM %s a
+		USING %s pe
 		WHERE a.event_id = pe.event_id
 		  AND pe.instance_id = $1
 		  AND pe.execution_id = $2
 		  AND pe.schedule_event_id = $3
-		  AND pe.visible_at IS NOT NULL`,
+		  AND pe.visible_at IS NOT NULL`, pb.tables.Attributes, pb.tables.PendingEvents),
 		instance.InstanceID, instance.ExecutionID, scheduleEventID); err != nil {
 		return fmt.Errorf("removing attributes for future events: %w", err)
 	}
 
-	if _, err := tx.ExecContext(ctx, `
-		DELETE FROM pending_events
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		DELETE FROM %s
 		WHERE instance_id = $1
 		  AND execution_id = $2
 		  AND schedule_event_id = $3
-		  AND visible_at IS NOT NULL`,
+		  AND visible_at IS NOT NULL`, pb.tables.PendingEvents),
 		instance.InstanceID, instance.ExecutionID, scheduleEventID); err != nil {
 		return fmt.Errorf("removing pending future events: %w", err)
 	}

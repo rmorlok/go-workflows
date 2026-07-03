@@ -1,11 +1,16 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/cschleiden/go-workflows/backend"
+	"github.com/cschleiden/go-workflows/backend/history"
 	"github.com/cschleiden/go-workflows/backend/test"
+	"github.com/cschleiden/go-workflows/core"
+	"github.com/cschleiden/go-workflows/workflow"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -60,6 +65,81 @@ func Test_SqliteBackendWithCustomMigrationsTable(t *testing.T) {
 	err = db.QueryRow("SELECT version FROM go_workflows_schema_migrations").Scan(&workflowsVersion)
 	require.NoError(t, err)
 	require.Equal(t, 3, workflowsVersion)
+}
+
+func Test_SqliteBackendWithTablePrefix(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:"+uuid.NewString()+"?mode=memory&cache=shared")
+	require.NoError(t, err)
+	defer db.Close()
+
+	_, err = db.Exec("PRAGMA journal_mode=WAL;")
+	require.NoError(t, err)
+	db.SetMaxOpenConns(1)
+
+	_, err = db.Exec("CREATE TABLE schema_migrations (version uint64, dirty bool)")
+	require.NoError(t, err)
+	_, err = db.Exec("CREATE UNIQUE INDEX version_unique ON schema_migrations (version)")
+	require.NoError(t, err)
+	_, err = db.Exec("INSERT INTO schema_migrations (version, dirty) VALUES (10, false)")
+	require.NoError(t, err)
+	_, err = db.Exec("CREATE TABLE instances (id TEXT PRIMARY KEY)")
+	require.NoError(t, err)
+	_, err = db.Exec("INSERT INTO instances (id) VALUES ('host-instance')")
+	require.NoError(t, err)
+
+	b := NewSqliteBackendWithDB(
+		db,
+		WithApplyMigrations(true),
+		WithTablePrefix("gw_"),
+	)
+	defer b.Close()
+
+	_, err = db.Exec("SELECT 1 FROM gw_instances LIMIT 1")
+	require.NoError(t, err)
+
+	var hostInstance string
+	err = db.QueryRow("SELECT id FROM instances").Scan(&hostInstance)
+	require.NoError(t, err)
+	require.Equal(t, "host-instance", hostInstance)
+
+	var defaultVersion int
+	err = db.QueryRow("SELECT version FROM schema_migrations").Scan(&defaultVersion)
+	require.NoError(t, err)
+	require.Equal(t, 10, defaultVersion)
+
+	var workflowsVersion int
+	err = db.QueryRow("SELECT version FROM gw_schema_migrations").Scan(&workflowsVersion)
+	require.NoError(t, err)
+	require.Equal(t, 3, workflowsVersion)
+
+	assertTablePrefixBackendSmoke(t, b)
+}
+
+func assertTablePrefixBackendSmoke(t *testing.T, b backend.Backend) {
+	t.Helper()
+
+	ctx := context.Background()
+	instance := core.NewWorkflowInstance(uuid.NewString(), uuid.NewString())
+	err := b.CreateWorkflowInstance(
+		ctx,
+		instance,
+		history.NewHistoryEvent(1, time.Now(), history.EventType_WorkflowExecutionStarted, &history.ExecutionStartedAttributes{
+			Queue: workflow.QueueDefault,
+		}),
+	)
+	require.NoError(t, err)
+
+	task, err := b.GetWorkflowTask(ctx, []workflow.Queue{workflow.QueueDefault, core.QueueSystem})
+	require.NoError(t, err)
+	require.NotNil(t, task)
+	require.Equal(t, instance.InstanceID, task.WorkflowInstance.InstanceID)
+
+	err = b.CompleteWorkflowTask(ctx, task, core.WorkflowInstanceStateFinished, task.NewEvents, nil, nil, nil)
+	require.NoError(t, err)
+
+	state, err := b.GetWorkflowInstanceState(ctx, instance)
+	require.NoError(t, err)
+	require.Equal(t, core.WorkflowInstanceStateFinished, state)
 }
 
 func Test_EndToEndSqliteBackend(t *testing.T) {
